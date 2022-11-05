@@ -53,10 +53,11 @@ class authController {
   };
   static userLogin = async (req, res) => {
     const { email, password } = req.body;
-    console.log(req.body)
+    console.log(req.body);
     try {
       if (email && password) {
         const isUser = await authModel.findOne({ email: email });
+        //console.log(isUser)
         if (isUser) {
           // Check is User Verified
 
@@ -67,28 +68,45 @@ class authController {
               email === isUser.email &&
               (await bcryptjs.compare(password, isUser.password))
             ) {
-              // Generate token
-              const token = jwt.sign(
+              // Generate access token
+              const accesstokenKey="pleaseSubscribe1"
+              const accesstoken = jwt.sign(
                 { userID: isUser._id },
-                "pleaseSubscribe",
+                accesstokenKey,
                 {
-                  expiresIn: "2d",
+                  expiresIn: "15s",
                 }
               );
-              const radius=isUser.radius;
-              //console.log(radius)
+              // Generate frresh token
+              const refreshtokenKey="pleaseSubscribe2"
+              const refreshtoken = jwt.sign(
+                { userID: isUser._id },
+                refreshtokenKey,
+                {
+                  expiresIn: "1w",
+                }
+              );
               let a={
-                message: "Login Successfully",
-                "token":token,
+                "message": "Login Successfully",
+                "userID":isUser._id,
+                "token":accesstoken,
                 "name": isUser.name,
-                "radius":radius,
               }
+              res.cookie('accesstoken',accesstoken,{
+                httpOnly:true,
+                maxAge:24*60*60*1000//1 day
+              })
+              res.cookie('userId',isUser._id,{
+                httpOnly:true,
+                maxAge:24*60*60*1000//1 day
+              })
+              res.cookie('refreshtoken',refreshtoken,{
+                httpOnly:true,
+                maxAge:7*24*60*60*1000//7 days
+              })
+              //console.log(res)
               return res.status(200).json({
                 a
-                // message: "Login Successfully",
-                // token,
-                // name: isUser.name,
-                // radius:radius,
               });
             } else {
               return res.status(400).json({ message: "Invalid Credentials!" });
@@ -102,12 +120,91 @@ class authController {
           return res.status(400).json({ message: "user Not Registered!!" });
         }
       } else {
-        return res.status(400).json({ message: "all fields are required" });
+        return res.status(400).json({ message: "all fields are must required" });
       }
     } catch (error) {
       return res.status(400).json({ message: error.message });
     }
   };
+
+  static authenticatedUsers=async(req,res)=>{
+    try{
+      const accesstoken=req.cookies['accesstoken'];
+      const userId=req.cookies['userId'];
+
+      const accesstokenKey="pleaseSubscribe1";
+      const payload=jwt.verify(accesstoken,accesstokenKey);
+      if(!payload){
+        return res.status(401).send({
+          message:"unauthenticated"
+        })
+      }
+      let user = await authModel.findById(userId);
+      
+      if(!user){
+        return res.status(401).send({
+          message:"unauthenticated"
+        })
+      }
+      //res.send(user);
+      const {password, ...data}=user._doc;
+     // console.log(data);
+      res.send(data);
+    }catch(error){
+      return res.status(401).send({
+        message:"unauthenticated"
+      })
+    }
+  }
+  static refresh=async(req,res)=>{
+    try{
+      const refreshtoken=req.cookies['refreshtoken'];
+      const refreshtokenKey="pleaseSubscribe2";
+      const payload=jwt.verify(refreshtoken,refreshtokenKey);
+      if(!payload){
+        return res.status(401).send({
+          message:"unauthenticated"
+        })
+      }
+      const accesstokenKey="pleaseSubscribe1";
+      const accesstoken = jwt.sign(
+        { userID: payload._id },
+        accesstokenKey,
+        {
+          expiresIn: "15s",
+        }
+      );
+      res.cookie('accesstoken',accesstoken,{
+        httpOnly:true,
+        maxAge:24*60*60*1000//1 day
+      })
+      res.send({
+        message:"success"
+      })
+    }catch(error){
+      return res.status(401).send({
+        message:"unauthenticated"
+      })
+    }
+  }
+
+  static delcokies=async(req,res)=>{
+    res.cookie('accesstoken', '', {
+      maxAge: 0,
+      overwrite: true,
+    });
+    res.cookie('refreshtoken', '', {
+      maxAge: 0,
+      overwrite: true,
+    });
+    res.cookie('userId', '', {
+      maxAge: 0,
+      overwrite: true,
+    });
+    res.send({
+      message:'success'
+    })
+  }
 
   static changePassword = async (req, res) => {
     const { newpassword, confirmpassword } = req.body;
@@ -131,6 +228,7 @@ class authController {
     }
   };
 
+  
   static forgetPassword = async (req, res) => {
     const { email } = req.body;
     try {
